@@ -113,6 +113,20 @@ type PrebindPlugin interface {
 	Prebind(pc *PluginContext, p *v1.Pod, nodeName string) *Status
 }
 
+// PermitPlugin is an interface that must be implemented by "permit" plugins.
+// These plugins are called before a pod being scheduled
+type PermitPlugin interface {
+	Plugin
+	// Permit is called before calling pre-bind on a pod.
+	Permit(pc *PluginContext, p *v1.Pod, nodeName string) *Status
+	// ShouldReject returns whether the pod should be rejected
+	ShouldReject(pc *PluginContext, p *v1.Pod) *Status
+	// ShouldWait returns whether the pod should wait
+	ShouldWait(pc *PluginContext, p *v1.Pod) *Status
+	// ShouldAccept specifies whether the pod should be accepted
+	ShouldAccept(pc *PluginContext, p *v1.Pod) *Status
+}
+
 // Framework manages the set of plugins in use by the scheduling framework.
 // Configured plugins are called at specified points in a scheduling context.
 type Framework interface {
@@ -128,6 +142,13 @@ type Framework interface {
 	// plugins returns an error, it does not continue running the remaining ones and
 	// returns the error. In such case, pod will not be scheduled.
 	RunReservePlugins(pc *PluginContext, pod *v1.Pod, nodeName string) *Status
+
+	// RunPermitPlugins runs the set of configured permit plugins. Permit will take
+	// one of these 3 decisions:
+	// 1. Allow
+	// 2. Deny
+	// 3. Wait for x seconds
+	RunPermitPlugins(pc *PluginContext, pod *v1.Pod, nodeName string) *Status
 }
 
 // FrameworkHandle provides data and some tools that plugins can use. It is

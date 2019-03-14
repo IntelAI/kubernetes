@@ -33,6 +33,7 @@ type framework struct {
 	plugins          map[string]Plugin // a map of initialized plugins. Plugin name:plugin instance.
 	reservePlugins   []ReservePlugin
 	prebindPlugins   []PrebindPlugin
+	permitPlugins    []PermitPlugin
 }
 
 var _ = Framework(&framework{})
@@ -98,6 +99,19 @@ func (f *framework) RunReservePlugins(
 		status := pl.Reserve(pc, pod, nodeName)
 		if !status.IsSuccess() {
 			msg := fmt.Sprintf("error while running %v reserve plugin for pod %v: %v", pl.Name(), pod.Name, status.Message())
+			klog.Error(msg)
+			return NewStatus(Error, msg)
+		}
+	}
+	return nil
+}
+
+func (f *framework) RunPermitPlugins(
+	pc *PluginContext, pod *v1.Pod, nodeName string) *Status {
+	for _, pl := range f.permitPlugins {
+		status := pl.Permit(pc, pod, nodeName)
+		if !status.IsSuccess() {
+			msg := fmt.Sprintf("error while running %v permit plugin for pod %v: %v", pl.Name(), pod.Name, status.Message())
 			klog.Error(msg)
 			return NewStatus(Error, msg)
 		}

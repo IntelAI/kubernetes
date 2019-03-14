@@ -488,7 +488,6 @@ func (sched *Scheduler) scheduleOne() {
 	// Tell the cache to assume that a pod now is running on a given node, even though it hasn't been bound yet.
 	// This allows us to keep scheduling without waiting on binding to occur.
 	assumedPod := pod.DeepCopy()
-
 	// Assume volumes first before assuming the pod.
 	//
 	// If all volumes are completely bound, then allBound is true and binding will be skipped.
@@ -517,8 +516,18 @@ func (sched *Scheduler) scheduleOne() {
 		metrics.PodScheduleErrors.Inc()
 		return
 	}
-	// bind the pod to its host asynchronously (we can do this b/c of the assumption step above).
 	go func() {
+		// check all the permit plugins
+		permitStatus := fwk.RunPermitPlugins(pluginContext, assumedPod, scheduleResult.SuggestedHost)
+
+		if !permitStatus.IsSuccess() {
+			err = fmt.Errorf(permitStatus.Message())
+			sched.Cache().ForgetPod(assumedPod)
+			sched.recordSchedulingFailure(assumedPod, err, SchedulerError, err.Error())
+			return
+		}
+
+		// bind the pod to its host asynchronously (we can do this b/c of the assumption step above).
 		// Bind volumes first before Pod
 		if !allBound {
 			err := sched.bindVolumes(assumedPod)
