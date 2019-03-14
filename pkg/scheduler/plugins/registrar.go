@@ -17,7 +17,9 @@ limitations under the License.
 package plugins
 
 import (
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/pkg/scheduler/internal/cache"
+	"k8s.io/kubernetes/pkg/scheduler/plugins/examples"
 	plugins "k8s.io/kubernetes/pkg/scheduler/plugins/v1alpha1"
 )
 
@@ -52,11 +54,12 @@ func (r *DefaultPluginSet) Data() *plugins.PluginData {
 }
 
 // NewDefaultPluginSet initializes default plugin set and returns its pointer.
-func NewDefaultPluginSet(ctx *plugins.PluginContext, schedulerCache *cache.Cache) *DefaultPluginSet {
+func NewDefaultPluginSet(ctx *plugins.PluginContext, schedulerCache *cache.Cache, client clientset.Interface) *DefaultPluginSet {
 	defaultRegistrar := DefaultPluginSet{
 		data: &plugins.PluginData{
 			Ctx:            ctx,
 			SchedulerCache: schedulerCache,
+			Client:         client,
 		},
 	}
 	defaultRegistrar.registerReservePlugins()
@@ -88,6 +91,7 @@ func (r *DefaultPluginSet) registerPermitPlugins() {
 		// Init functions of all permit plugins go here. They are called in the
 		// same order that they are registered.
 		// Example:
-		// examples.NewGangSchedulingPlugin(60),
+		// examples.NewStatelessPrebindExample(),
+		examples.NewGangSchedulingPlugin(60),
 	}
 }
