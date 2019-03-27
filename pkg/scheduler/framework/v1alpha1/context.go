@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	"errors"
 	"sync"
+
+	clientset "k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -39,12 +41,14 @@ type ContextKey string
 type PluginContext struct {
 	mx      sync.RWMutex
 	storage map[ContextKey]ContextData
+	client  clientset.Interface
 }
 
 // NewPluginContext initializes a new PluginContext and returns its pointer.
-func NewPluginContext() *PluginContext {
+func NewPluginContext(client clientset.Interface) *PluginContext {
 	return &PluginContext{
 		storage: make(map[ContextKey]ContextData),
+		client:  client,
 	}
 }
 
@@ -91,4 +95,9 @@ func (c *PluginContext) RLock() {
 // RUnlock releases PluginContext read lock.
 func (c *PluginContext) RUnlock() {
 	c.mx.RUnlock()
+}
+
+// Client returns the instance of clientset.Interface
+func (c *PluginContext) Client() clientset.Interface {
+	return c.client
 }

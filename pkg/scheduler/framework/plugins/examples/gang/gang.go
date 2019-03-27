@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package examples
+package gang
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	batch "k8s.io/kubernetes/pkg/apis/batch"
-	plugins "k8s.io/kubernetes/pkg/scheduler/plugins/v1alpha1"
+	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 )
 
 // GangSchedulingPlugin is an example of a plugin that implements permit for gang scheduling
@@ -56,7 +56,7 @@ func NewGangCounter() *GangCounter {
 	}
 }
 
-var _ = plugins.PermitPlugin(GangSchedulingPlugin{})
+var _ = framework.PermitPlugin(&GangSchedulingPlugin{})
 
 // Name returns name of the plugin. It is used in logs, etc.
 func (mc GangSchedulingPlugin) Name() string {
@@ -65,14 +65,14 @@ func (mc GangSchedulingPlugin) Name() string {
 
 //addPodUIDToCounter adds the pod UID to a counterAddType bin for the given key (job UID).
 //This is an atomic operation.
-func (mc GangSchedulingPlugin) addPodUIDToCounter(ps plugins.PluginSet, key string, podUID string, opType counterAddType) error {
-	ps.Data().Ctx.Mx.Lock()
-	defer ps.Data().Ctx.Mx.Unlock()
+func (mc GangSchedulingPlugin) addPodUIDToCounter(pc *framework.PluginContext, key string, podUID string, opType counterAddType) error {
+	pc.Lock()
+	defer pc.Unlock()
 	//Add a new counter if it does not exist for this key
-	if _, e := ps.Data().Ctx.Read(plugins.ContextKey(key)); e != nil {
-		ps.Data().Ctx.Write(plugins.ContextKey(key), NewGangCounter())
+	if _, e := pc.Read(framework.ContextKey(key)); e != nil {
+		pc.Write(framework.ContextKey(key), NewGangCounter())
 	}
-	c, err := ps.Data().Ctx.Read(plugins.ContextKey(key))
+	c, err := pc.Read(framework.ContextKey(key))
 	if err != nil {
 		return err
 	}
@@ -88,20 +88,20 @@ func (mc GangSchedulingPlugin) addPodUIDToCounter(ps plugins.PluginSet, key stri
 		mapToConsider[podUID] = true
 	}
 
-	ps.Data().Ctx.Write(plugins.ContextKey(key), counter)
+	pc.Write(framework.ContextKey(key), counter)
 	return nil
 }
 
 //getCount returns the pod UIDs from all counterAddType bins for the given key (job UID).
 //This is an atomic operation.
-func (mc GangSchedulingPlugin) getCount(ps plugins.PluginSet, key string) (*GangCounter, error) {
-	ps.Data().Ctx.Mx.Lock()
-	defer ps.Data().Ctx.Mx.Unlock()
+func (mc GangSchedulingPlugin) getCount(pc *framework.PluginContext, key string) (*GangCounter, error) {
+	pc.Lock()
+	defer pc.Unlock()
 	//Add a new counter if it does not exist for this key
-	if _, e := ps.Data().Ctx.Read(plugins.ContextKey(key)); e != nil {
-		ps.Data().Ctx.Write(plugins.ContextKey(key), NewGangCounter())
+	if _, e := pc.Read(framework.ContextKey(key)); e != nil {
+		pc.Write(framework.ContextKey(key), NewGangCounter())
 	}
-	c, err := ps.Data().Ctx.Read(plugins.ContextKey(key))
+	c, err := pc.Read(framework.ContextKey(key))
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (mc GangSchedulingPlugin) getCount(ps plugins.PluginSet, key string) (*Gang
 }
 
 //getJobFromPod returns the parent job for the pod if it exists
-func (mc GangSchedulingPlugin) getJobFromPod(ps plugins.PluginSet, pod *v1.Pod) (*batchv1.Job, error) {
+func (mc GangSchedulingPlugin) getJobFromPod(pc *framework.PluginContext, pod *v1.Pod) (*batchv1.Job, error) {
 	// If pod is not part of a job, return true as it's not part of a gang
 	ownerReference := metav1.GetControllerOf(pod)
 	if ownerReference == nil {
@@ -125,7 +125,7 @@ func (mc GangSchedulingPlugin) getJobFromPod(ps plugins.PluginSet, pod *v1.Pod) 
 		return nil, fmt.Errorf("Kind of owner reference of pod with ID %v is not a job", pod.UID)
 	}
 
-	job, err := ps.Data().Client.BatchV1().Jobs(pod.Namespace).Get(ownerReference.Name, metav1.GetOptions{})
+	job, err := pc.Client().BatchV1().Jobs(pod.Namespace).Get(ownerReference.Name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -143,14 +143,14 @@ func (mc GangSchedulingPlugin) getJobFromPod(ps plugins.PluginSet, pod *v1.Pod) 
 }
 
 //cleanIfDone cleans the map if all pods in the gang have already been scheduled
-func (mc GangSchedulingPlugin) cleanIfDone(ps plugins.PluginSet, pod *v1.Pod) error {
-	ps.Data().Ctx.Mx.Lock()
-	defer ps.Data().Ctx.Mx.Unlock()
-	job, err := mc.getJobFromPod(ps, pod)
+func (mc GangSchedulingPlugin) cleanIfDone(pc *framework.PluginContext, pod *v1.Pod) error {
+	pc.Lock()
+	defer pc.Unlock()
+	job, err := mc.getJobFromPod(pc, pod)
 	if err != nil {
 		return nil
 	}
-	c, err := ps.Data().Ctx.Read(plugins.ContextKey(string(job.UID)))
+	c, err := pc.Read(framework.ContextKey(string(job.UID)))
 	if err != nil {
 		return err
 	}
@@ -158,31 +158,31 @@ func (mc GangSchedulingPlugin) cleanIfDone(ps plugins.PluginSet, pod *v1.Pod) er
 
 	if int32(len(counter.pile[accepted])) == *job.Spec.Parallelism {
 		// Delete this key
-		ps.Data().Ctx.Delete(plugins.ContextKey(string(job.UID)))
+		pc.Delete(framework.ContextKey(string(job.UID)))
 	}
 
 	return nil
 }
 
 // Permit is invoked by the framework at "permit" extension point.
-func (mc GangSchedulingPlugin) Permit(ps plugins.PluginSet, pod *v1.Pod, nodeName string) (bool, error) {
+func (mc GangSchedulingPlugin) Permit(pc *framework.PluginContext, pod *v1.Pod, nodeName string) *framework.Status {
 
 	for true {
 		//Check if the pod should be rejected
-		reject, err := mc.ShouldReject(ps, pod)
-		if err != nil || reject {
-			return false, err
+		status := mc.ShouldReject(pc, pod)
+		if !status.IsSuccess() {
+			return status
 		}
 
 		//Check if the pod should wait for other pods in the gang
-		wait, err := mc.ShouldWait(ps, pod)
-		if err != nil {
-			return false, err
+		status = mc.ShouldWait(pc, pod)
+		if status.AsError() != nil {
+			return status
 		}
-		if wait {
+		if status.IsSuccess() {
 			//Sleep timeout reached
 			if mc.backoff.Steps == 1 {
-				return false, fmt.Errorf("Timed out waiting for the gang to be scheduled")
+				return framework.NewStatus(framework.Error, "Timed out waiting for the gang to be scheduled")
 			}
 			//Sleep with a backoff
 			time.Sleep(mc.backoff.Step())
@@ -190,77 +190,77 @@ func (mc GangSchedulingPlugin) Permit(ps plugins.PluginSet, pod *v1.Pod, nodeNam
 		}
 
 		//Check if the pod should be accepted. In this case ShouldAccept always returns true
-		accept, err := mc.ShouldAccept(ps, pod)
-		if err != nil || !accept {
-			return false, err
+		status = mc.ShouldAccept(pc, pod)
+		if !status.IsSuccess() {
+			return status
 		}
 
 		//Clean the map if everything in the gang is scheduled.
-		mc.cleanIfDone(ps, pod)
-		return true, nil
+		mc.cleanIfDone(pc, pod)
+		return framework.NewStatus(framework.Success, "")
 	}
 
-	return false, nil
+	return framework.NewStatus(framework.Error, "")
 }
 
 // ShouldReject returns true if any pod in the gang has been rejected.
-func (mc GangSchedulingPlugin) ShouldReject(ps plugins.PluginSet, pod *v1.Pod) (bool, error) {
+func (mc GangSchedulingPlugin) ShouldReject(pc *framework.PluginContext, pod *v1.Pod) *framework.Status {
 	// For the owner referenced job, if any pod has been rejected
 	// Here we assume that the same pod won't be called in ShouldReject
-	job, err := mc.getJobFromPod(ps, pod)
+	job, err := mc.getJobFromPod(pc, pod)
 	if err != nil {
 		// Don't return the error as we want to schedule the pod if it's not part of a job
-		return false, nil
+		return framework.NewStatus(framework.Success, "")
 	}
 	//Check if any pod has been rejected
-	counter, err := mc.getCount(ps, string(job.UID))
+	counter, err := mc.getCount(pc, string(job.UID))
 	if err != nil {
-		return false, err
+		return framework.NewStatus(framework.Success, "")
 	}
 	// if rejected > 1, return true. Else return false
 	if len(counter.pile[rejected]) >= 1 {
 		// Add pod to the rejected pile
-		mc.addPodUIDToCounter(ps, string(job.UID), string(pod.UID), rejected)
-		return true, fmt.Errorf("One pod in the gang has been rejected")
+		mc.addPodUIDToCounter(pc, string(job.UID), string(pod.UID), rejected)
+		return framework.NewStatus(framework.Error, "One pod in the gang has been rejected")
 	}
 
-	return false, nil
+	return framework.NewStatus(framework.Success, "")
 }
 
 // ShouldWait returns true if any pod in the gang has not been seen yet.
-func (mc GangSchedulingPlugin) ShouldWait(ps plugins.PluginSet, pod *v1.Pod) (bool, error) {
+func (mc GangSchedulingPlugin) ShouldWait(pc *framework.PluginContext, pod *v1.Pod) *framework.Status {
 	// Get the job
-	job, err := mc.getJobFromPod(ps, pod)
+	job, err := mc.getJobFromPod(pc, pod)
 	if err != nil {
 		// Don't return the error as we want to schedule the pod if it's not part of a job
-		return false, nil
+		return framework.NewStatus(framework.Success, "")
 	}
-	counter, err := mc.getCount(ps, string(job.UID))
+	counter, err := mc.getCount(pc, string(job.UID))
 	if err != nil {
-		return false, err
+		return framework.NewStatus(framework.Success, err.Error())
 	}
 
 	//Number of pods in gang = job.Parallelism
 	//if rejected == 0, waiting < #replicas, return true, else false
 	if len(counter.pile[rejected]) == 0 && int32(len(counter.pile[waiting])) < *job.Spec.Parallelism {
 		// Add pod to the waiting pile
-		mc.addPodUIDToCounter(ps, string(job.UID), string(pod.UID), waiting)
-		return true, nil
+		mc.addPodUIDToCounter(pc, string(job.UID), string(pod.UID), waiting)
+		return framework.NewStatus(framework.Error, "")
 	}
-	return false, nil
+	return framework.NewStatus(framework.Success, "")
 }
 
 // ShouldAccept returns true in all cases.
-func (mc GangSchedulingPlugin) ShouldAccept(ps plugins.PluginSet, pod *v1.Pod) (bool, error) {
+func (mc GangSchedulingPlugin) ShouldAccept(pc *framework.PluginContext, pod *v1.Pod) *framework.Status {
 	// Get the job
-	job, err := mc.getJobFromPod(ps, pod)
+	job, err := mc.getJobFromPod(pc, pod)
 	if err != nil {
 		// Don't return the error as we want to schedule the pod if it's not part of a job
-		return true, nil
+		return framework.NewStatus(framework.Success, "")
 	}
 	// Add pod to the accepted pile
-	mc.addPodUIDToCounter(ps, string(job.UID), string(pod.UID), accepted)
-	return true, nil
+	mc.addPodUIDToCounter(pc, string(job.UID), string(pod.UID), accepted)
+	return framework.NewStatus(framework.Success, "")
 }
 
 // NewGangSchedulingPlugin initializes a new plugin and returns it.

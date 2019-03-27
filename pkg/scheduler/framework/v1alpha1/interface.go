@@ -22,6 +22,7 @@ import (
 	"errors"
 
 	"k8s.io/api/core/v1"
+	clientset "k8s.io/client-go/kubernetes"
 	internalcache "k8s.io/kubernetes/pkg/scheduler/internal/cache"
 )
 
@@ -160,4 +161,8 @@ type FrameworkHandle interface {
 	// a pod finishes "Reserve" point. There is no guarantee that the information
 	// remains unchanged in the binding phase of scheduling.
 	NodeInfoSnapshot() *internalcache.NodeInfoSnapshot
+
+	// Client returns the k8s client interface passed in at the creation time
+	// of the instance of the framework.
+	Client() clientset.Interface
 }

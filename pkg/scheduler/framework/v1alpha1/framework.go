@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	"k8s.io/kubernetes/pkg/scheduler/internal/cache"
 )
@@ -30,6 +31,7 @@ import (
 type framework struct {
 	registry         Registry
 	nodeInfoSnapshot *cache.NodeInfoSnapshot
+	client           clientset.Interface
 	plugins          map[string]Plugin // a map of initialized plugins. Plugin name:plugin instance.
 	reservePlugins   []ReservePlugin
 	prebindPlugins   []PrebindPlugin
@@ -39,11 +41,12 @@ type framework struct {
 var _ = Framework(&framework{})
 
 // NewFramework initializes plugins given the configuration and the registry.
-func NewFramework(r Registry, _ *runtime.Unknown) (Framework, error) {
+func NewFramework(r Registry, _ *runtime.Unknown, client clientset.Interface) (Framework, error) {
 	f := &framework{
 		registry:         r,
 		nodeInfoSnapshot: cache.NewNodeInfoSnapshot(),
 		plugins:          make(map[string]Plugin),
+		client:           client,
 	}
 
 	// TODO: The framework needs to read the scheduler config and initialize only
@@ -125,4 +128,10 @@ func (f *framework) RunPermitPlugins(
 // unchanged after "Reserve".
 func (f *framework) NodeInfoSnapshot() *cache.NodeInfoSnapshot {
 	return f.nodeInfoSnapshot
+}
+
+// Client returns the k8s client interface passed in at the creation time
+// of the instance of the framework.
+func (f *framework) Client() clientset.Interface {
+	return f.client
 }

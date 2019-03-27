@@ -39,6 +39,7 @@ import (
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/core"
 	"k8s.io/kubernetes/pkg/scheduler/factory"
+	gangSchedulePlugin "k8s.io/kubernetes/pkg/scheduler/framework/plugins/examples/gang"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 	internalcache "k8s.io/kubernetes/pkg/scheduler/internal/cache"
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
@@ -199,6 +200,10 @@ func New(client clientset.Interface,
 	sched := NewFromConfig(config)
 
 	AddAllEventHandlers(sched, options.schedulerName, nodeInformer, podInformer, pvInformer, pvcInformer, serviceInformer, storageClassInformer)
+
+	// Register gang scheduling permit plugin
+	plugin := gangSchedulePlugin.NewGangSchedulingPlugin(60)
+	registry.Register(plugin.Name(), plugin)
 	return sched, nil
 }
 
@@ -453,7 +458,7 @@ func (sched *Scheduler) scheduleOne() {
 
 	// Synchronously attempt to find a fit for the pod.
 	start := time.Now()
-	pluginContext := framework.NewPluginContext()
+	pluginContext := framework.NewPluginContext(fwk.Client())
 	scheduleResult, err := sched.schedule(pod)
 	if err != nil {
 		// schedule() may have failed because the pod would not fit on any host, so we try to

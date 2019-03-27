@@ -249,7 +249,7 @@ func NewConfigFactory(args *ConfigFactoryArgs) Configurator {
 	}
 	schedulerCache := internalcache.New(30*time.Second, stopEverything)
 	// TODO(bsalamat): config files should be passed to the framework.
-	framework, err := framework.NewFramework(args.Registry, nil)
+	framework, err := framework.NewFramework(args.Registry, nil, args.Client)
 	if err != nil {
 		klog.Fatalf("error initializing the scheduling framework: %v", err)
 	}
