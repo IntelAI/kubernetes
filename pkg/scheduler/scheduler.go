@@ -39,6 +39,7 @@ import (
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/core"
 	"k8s.io/kubernetes/pkg/scheduler/factory"
+	gangplugin "k8s.io/kubernetes/pkg/scheduler/framework/plugins/examples/gang"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 	internalcache "k8s.io/kubernetes/pkg/scheduler/internal/cache"
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
@@ -136,6 +137,12 @@ func New(client clientset.Interface,
 	plugins *kubeschedulerconfig.Plugins,
 	pluginConfig []kubeschedulerconfig.PluginConfig,
 	opts ...func(o *schedulerOptions)) (*Scheduler, error) {
+
+	// Register gang scheduling permit plugin.
+	// Note(balajismaniam): This is a work-around. Ideally we want to register new plugins in framework.NewRegistry.
+	// However, with the current pkg structure adding new plugins there will form a import cycle as any plugin
+	// will make use of the framework pkg.
+	registry.Register(gangplugin.Name, gangplugin.New)
 
 	options := defaultSchedulerOptions
 	for _, opt := range opts {
